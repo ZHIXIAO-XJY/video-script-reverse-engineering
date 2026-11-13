@@ -1,0 +1,27 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 运行产物（脚本会生成）
+frames/
+*.mp4
+*.mov
+*.mp3
+*.wav
+*.jpg
+*.jpeg
+*.png
+!docs/**/*.png
+
+# Python（若后续加脚本）
+__pycache__/
+*.py[cod]
+.venv/
+
+# 打包产物
+dist/
+*.zip
