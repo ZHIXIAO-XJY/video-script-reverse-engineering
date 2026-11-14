@@ -72,6 +72,24 @@ fi
 
 FRAME_N=$(ls "$OUTDIR"/kf_*.jpg 2>/dev/null | wc -l | tr -d ' ')
 
+# ---------- P3.5 字幕网格（逐秒台词基准表素材） ----------
+# 自动探测字幕条纵向位置：取 3 个采样帧，裁画面下 1/3 拼图供人工确认
+mkdir -p "$OUTDIR/sub"
+GRID_ROWS=10   # 每张网格 3x10=30 帧（30 秒）
+FONT=""
+for fc in "C:/Windows/Fonts/arialbd.ttf" "/System/Library/Fonts/Supplemental/Arial Bold.ttf" "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"; do
+  [ -f "$fc" ] && FONT="$fc" && break
+done
+if [ -n "$FONT" ]; then
+  FONT_ESC=${FONT//:/\\:}   # drawtext 的选项分隔符是冒号，路径里的冒号必须转义
+  ffmpeg -y -v error -i "$VIDEO" -vf "fps=1,crop=576:140:0:710,drawtext=fontfile='$FONT_ESC':text='%{pts\:hms}':x=8:y=6:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.75,tile=3x${GRID_ROWS}" -q:v 3 "$OUTDIR/sub/grid%02d.jpg" \
+    && GRID_N=$(ls "$OUTDIR"/sub/grid*.jpg 2>/dev/null | wc -l | tr -d ' ') \
+    && echo "[OK] 字幕网格已生成: $OUTDIR/sub/ (${GRID_N} 张，每张30秒)" \
+    || echo "[WARN] 字幕网格生成失败（可手动确认字幕区域后重试）"
+else
+  echo "[WARN] 未找到可用字体，跳过字幕网格（可手抽字幕条帧替代）"
+fi
+
 # ---------- 帧序号 ↔ 秒数对照表（写场景描述时必备） ----------
 : > "$OUTDIR/frame_index.txt"
 i=1
@@ -98,8 +116,9 @@ fi
   echo "----------------------------------------"
   echo "下一步:"
   echo "1) AudioTranscribe $OUTDIR/audio.mp3"
-  echo "2) 每批 8 张并行 ViewImage，query 统一为:"
+  echo "2) 逐张读字幕网格 $OUTDIR/sub/grid*.jpg，建立逐秒台词基准表（说话人归属第一证据）"
+  echo "3) 每批 8 张并行 ViewImage，query 统一为:"
   echo "   描述这一竖屏视频帧：人物外貌、表情、动作、场景、服装、字幕文字、构图"
-  echo "3) 高危段切片重转录（见 SKILL.md P6）"
+  echo "4) 高危段切片重转录（见 SKILL.md P6）"
   echo "   ffmpeg -y -v error -ss <起> -t 75 -i \"$VIDEO\" -vn -ac 1 -ar 16000 -b:a 96k seg1.mp3"
 } | tee "$OUTDIR/summary.txt"
