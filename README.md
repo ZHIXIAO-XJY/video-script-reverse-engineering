@@ -17,6 +17,25 @@
 
 本技能把这套"摄像机 + 导演"双视角的拆解方法固化成一条可重复执行的流水线。
 
+## 两种模式
+
+| | 快拆模式（默认） | 精拆模式 |
+|---|---|---|
+| 目标 | **10 分钟**拿到可用脚本 | 逐帧精确到表情转折 |
+| 抽帧 | 1 帧/5s（长片 1 帧/8s） | 1 帧/2s + 单帧序列 |
+| 读图量 | **14 张**（11 分钟片） | 100+ 张 |
+| 校验方式 | 字幕网格 + filmstrip 双重对齐 | 加分片重转录 + 密集画面复核 |
+| 何时用 | 默认；赶时间、对标分析、带货结构拆解 | 用户明确要求"逐帧/精确"时 |
+
+**快拆模式的核心提速**：不生成单帧序列再逐张读，而是用 **filmstrip 拼贴网格** —— 每格是一个时间点的完整画面（自带烧录字幕）+ 时间戳角标，一张图顶几十秒。
+
+```
+旧方案：87 张单帧 + 24 张字幕网格 = 111 张图要逐张读
+新方案：6 张 filmstrip + 8 张字幕网格 = 14 张图      ↓ 87%
+```
+
+实测 692 秒片子：素材准备 20 秒（ffmpeg），读图 14 张（分 2 批并行），**完整脚本 10 分钟内交付**。
+
 ## 交付物长什么样
 
 一份 Markdown 脚本，包含：
@@ -115,11 +134,11 @@ ffmpeg -version && ffprobe -version
 ### 手动跑预处理
 
 ```bash
-# 探针 → 音频 → 场景检测 → 均匀抽帧 → 高危段切片
-bash scripts/extract_assets.sh ./video.mp4 ./frames [帧间隔秒数]
+# 快拆模式（默认）
+bash scripts/extract_assets.sh ./video.mp4 ./frames fast
 
-# 例：10 分钟的视频，每 10 秒一帧
-bash scripts/extract_assets.sh ./video.mp4 ./frames 10
+# 精拆模式：额外产出单帧序列，用于逐帧复核
+bash scripts/extract_assets.sh ./video.mp4 ./frames deep
 ```
 
 输出：
@@ -128,26 +147,29 @@ bash scripts/extract_assets.sh ./video.mp4 ./frames 10
 frames/
 ├── probe.txt          # 时长/分辨率/码率/音轨信息
 ├── audio.mp3          # 16kHz 单声道，供 ASR
-├── kf_001.jpg ...     # 关键帧
-├── frame_index.txt    # 帧序号 ↔ 秒数对照表
-├── scene_log.txt      # 场景检测原始日志
-└── summary.txt        # 工作量表（时长/帧数/建议密度）
+├── fs/fs01.jpg ...    # ★ filmstrip 拼贴网格（画面+字幕+时间戳，一张顶120秒）
+├── sub/grid01.jpg ... # ★ 字幕网格（2秒/格，台词基准表）
+├── kf_001.jpg ...     # 单帧序列（仅 deep 模式）
+├── frame_index.txt    # 帧序号 ↔ 秒数对照表（deep 模式）
+└── summary.txt        # 工作量表 + 下一步指引
 ```
 
 ## 工作流（P0–P7）
 
 ```
 P0 素材探针    ffprobe 拿时长/分辨率 → 按时长定抽帧密度
-P1 音频转录    AudioTranscribe 全量转录 → 带时间戳的台词骨架
-P2 抽帧        场景检测优先，命中<10帧则回退均匀抽帧
-P3 批量看帧    每批 8 张并行，抄字幕/水印/价格/品牌名 + 记身份识别要素
-P3.5 字幕网格  ★ 逐秒裁字幕条拼网格 → 建立台词的"官方答案"基准表
+P1 音频转录    AudioTranscribe 全量转录 → 带时间戳的台词骨架  【与P2并行】
+P2 filmstrip   ★ 1帧/5s + 6x4拼贴网格（画面+字幕+时间戳，一张顶120秒）
+P3 批量读网格  每批 6-8 张并行 ViewImage，逐格记人物/表情/动作/字幕
+P3.5 字幕网格  ★ 2秒/格裁字幕条拼 6x8 → 台词基准表
 P3.6 身份卡    ★ 角色三重锁定（面孔+造型+场景关系），防同脸复用与换装
 P4 建骨架      按场景切段，每段命名 + 场景描述
 P5 五维填充    台词下挂 声音/表情/眼神/动作/神态 五标签
-P6 五层校验    ★ 分片重转录 + 字幕基准表对齐 + 口型帧裁决 + 剧情互锁 + 身份复核
+P6 五层校验    ★ 字幕网格 + filmstrip 双重对齐 + 定点口型帧 + 剧情互锁
 P7 交付自检    过 qc-checklist，present_files 呈现
 ```
+
+> **时间预算**：快拆模式 P0–P1 约 3 分钟、P2 10 秒、P3 约 2 分钟、P4–P5 约 3 分钟、P6 约 1 分钟、P7 30 秒——**10 分钟内交付**。
 
 ### 为什么校验层最关键
 
@@ -182,13 +204,13 @@ P7 交付自检    过 qc-checklist，present_files 呈现
 
 ```
 video-script-reverse-engineering/
-├── SKILL.md                      # 主流程 P0–P7 + 六条铁律
+├── SKILL.md                      # 主流程 P0–P7 + 六条铁律 + 10分钟时间预算
 ├── references/
 │   ├── script-template.md        # 交付物完整骨架模板
-│   ├── qc-checklist.md           # 19 项交付前自检
-│   └── pitfalls.md               # 13 类高频错误 + 真实案例
+│   ├── qc-checklist.md           # 22 项交付前自检
+│   └── pitfalls.md               # 14 类高频错误 + 真实案例
 ├── scripts/
-│   ├── extract_assets.sh         # 一键预处理
+│   ├── extract_assets.sh         # 一键预处理（fast / deep 双模式）
 │   ├── install.sh                # macOS/Linux 安装
 │   └── install.ps1               # Windows 安装
 └── README.md
